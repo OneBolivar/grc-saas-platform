@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Tabla global de Empresas/Organizaciones (Tenants)
+model Tenant {
+  id         String   @id @default(uuid())
+  name       String   // Nombre comercial de la empresa
+  slug       String   @unique // Identificador legible único (ej. "acme-corp")
+  schemaName String   @unique @map("schema_name") // Nombre del schema en Postgres (ej. "tenant_acme_corp")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  users      User[]
+
+  @@map("tenants")
+}
+
+// 2. Tabla global de Usuarios
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("AUDITOR") // ADMIN o AUDITOR
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relación con el Tenant
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+// 3. Tabla global para Idempotencia (Requisito obligatorio 4.4)
+model IdempotencyKey {
+  id           String   @id @default(uuid())
+  key          String   @unique // Clave enviada en el header Idempotency-Key
+  endpoint     String   // Ruta que procesó la solicitud (ej. "/api/tenants")
+  statusCode   Int      @map("status_code") // Código HTTP original (ej. 201)
+  responseBody String   @map("response_body") @db.Text // JSON original devuelto
+  expiresAt    DateTime @map("expires_at") // Fecha de caducidad (ej. 24 horas)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([key, expiresAt])
+  @@map("idempotency_keys")
+}
